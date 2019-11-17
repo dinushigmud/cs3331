@@ -105,13 +105,13 @@ class ChatRequestHandler(SocketServer.BaseRequestHandler):
         elif command == 'broadcast':
             message_string = ' '.join(args)
             self.broadcast(message_string)
-        elif command == 'send':
+        elif command == 'message':
             try:
                 usernames = set(
                     args[0] if isinstance(args[0], list) else [args[0]]
                 )
                 message_string = ' '.join(args[1:])
-                self.send(message_string, usernames)
+                self.message(message_string, usernames)
             except Exception:
                 self.send_string('error:args:{}'.format(command))
         elif command == 'logout':
@@ -152,9 +152,9 @@ class ChatRequestHandler(SocketServer.BaseRequestHandler):
         self.send_string(' '.join(usernames))
 
     def broadcast(self, message):
-        self.send(message, self.server.users.keys())
+        self.message(message, self.server.users.keys())
 
-    def send(self, message_string, usernames):
+    def message(self, message_string, usernames):
         invalid_usernames, users_messaged = [], 0
         for username in usernames:
             user = self.server.users.get(username)

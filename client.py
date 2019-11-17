@@ -13,7 +13,7 @@ Commands:
     broadcast <message>                 Send message to all users
     message <user> <message>            Send message to user
     logout                              Logout from chat server
-    fetch                               Fetch messages in message queue
+    block <user>
 """
 
 
@@ -59,7 +59,7 @@ class ChatClient:
                         )
                     elif error_type == 'args':
                         self.print_string(
-                            'Invalid arguments for command: {}. '
+                            'Error: Invalid command: {}. '
                             'Enter `help` for usage.\n'.format(command)
                         )
                 elif response == 'fetching':
@@ -77,7 +77,7 @@ class ChatClient:
             if response.startswith('blocked:'):
                 blocked, time_left = response.split(':')
                 self.print_string(
-                    'Logins for {} from this IP address are blocked. Wait'
+                    'Logins for {} have been blocked due to multiple failed logins. Please try again later.'
                     ' {} seconds for block to be lifted.\n'.format(
                         username,
                         time_left
@@ -102,7 +102,7 @@ class ChatClient:
             else:
                 break
         self.print_string(
-            'Logins for {} from this IP address have been blocked'
+            'Logins for {} have been blocked due to multiple failed logins'
             ' for {} seconds.\n'.format(username, response)
         )
         return False

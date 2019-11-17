@@ -118,6 +118,19 @@ class ChatRequestHandler(SocketServer.BaseRequestHandler):
             self.send_string('goodbye')
             self.user.logout()
             self.log('{} logged out'.format(self.user.username))
+        elif command == 'block':
+            print('entered block command unit')
+            user_to_be_blocked = args[0]
+            self.user.blocked_users.append(user_to_be_blocked)
+            print (self.user.blocked_users)
+            self.send_string('blocking')
+        elif command == 'unblock':
+            print('entered unblock command unit')
+            user_to_be_unblocked = args[0]
+            tmp = self.user.blocked_users.index(user_to_be_unblocked)
+            self.user.blocked_users.pop(tmp)
+            print (self.user.blocked_users)
+            self.send_string('unblocking')
         elif command == 'fetch':
             self.send_string('fetching')
         else:
@@ -161,9 +174,13 @@ class ChatRequestHandler(SocketServer.BaseRequestHandler):
             if not user:
                 invalid_usernames.append(username)
             elif user is not self.user:
-                message = Message(message_string, self.user)
-                user.enqueue_message(message)
-                users_messaged += 1
+                if self.user.username in user.blocked_users:
+                    pass
+                    # invalid_usernames.append(username)
+                else :    
+                    message = Message(message_string, self.user)
+                    user.enqueue_message(message)
+                    users_messaged += 1
         self.send_string('sent:{}'.format(''.join(invalid_usernames)))
         self.log('{} sent a message to {} user(s)'.format(
             self.user.username,

@@ -8,6 +8,7 @@ class User:
         self.is_connected = False
         self.last_active = float('-inf')
         self.blocked_ips = {}
+        self.blocked_users = []
         self.message_queue = Queue()  # thread-safe
 
     def login(self):

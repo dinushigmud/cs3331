@@ -13,7 +13,8 @@ Commands:
     broadcast <message>                 Send message to all users
     message <user> <message>            Send message to user
     logout                              Logout from chat server
-    block <user>
+    block <user>                        Block a user 
+    unblock <user>                      Unblock a user
 """
 
 

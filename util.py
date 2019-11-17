@@ -1,9 +1,5 @@
 import re
 import time 
-
-
-COMMAND_TOKEN_REGEX = re.compile(r'\(.*\)|\'.*\'|\S+')
-    
 def parse_command(command_string):
     tokens = []
     for match in COMMAND_TOKEN_REGEX.finditer(command_string):

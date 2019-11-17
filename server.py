@@ -9,8 +9,7 @@ import util
 BUFFER_SIZE = 1024
 
 
-class ChatServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-
+class Server(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     def __init__(self, server_address, request_handler_class, user_file_path):
         SocketServer.TCPServer.__init__(
             self,
@@ -30,7 +29,7 @@ class ChatServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.users[username] = User(username, password)
 
 
-class ChatRequestHandler(SocketServer.BaseRequestHandler):
+class RequestHandler(SocketServer.BaseRequestHandler):
 
     def handle(self):
         self.request.settimeout(self.time_out)
@@ -61,12 +60,12 @@ class ChatRequestHandler(SocketServer.BaseRequestHandler):
         while not self.user:
             username = self.read()
             user = self.server.users.get(username)
-            if self.ip in user.blocked_ips:
-                time_blocked = user.blocked_ips[self.ip]
+            if self.ip in user.blocked_connections:
+                time_blocked = user.blocked_connections[self.ip]
                 time_elapsed = util.current_time() - time_blocked
                 time_left = self.block_time - time_elapsed
                 if time_elapsed > self.block_time:
-                    user.blocked_ips.pop(self.ip)
+                    user.blocked_connections.pop(self.ip)
                     self.user = user
                 else:
                     self.send_string('blocked:{}'.format(time_left))
@@ -84,7 +83,7 @@ class ChatRequestHandler(SocketServer.BaseRequestHandler):
                 return True
             login_attempts += 1
         self.send_string(str(self.block_time))
-        self.user.blocked_ips[self.ip] = util.current_time()
+        self.user.blocked_connections[self.ip] = util.current_time()
         self.log('{} blocked for {} seconds'.format(
             username,
             self.block_time
@@ -179,7 +178,7 @@ class ChatRequestHandler(SocketServer.BaseRequestHandler):
                     # invalid_usernames.append(username)
                 else :    
                     message = Message(message_string, self.user)
-                    user.enqueue_message(message)
+                    user.add_messeges(message)
                     users_messaged += 1
         self.send_string('sent:{}'.format(''.join(invalid_usernames)))
         self.log('{} sent a message to {} user(s)'.format(
@@ -217,9 +216,11 @@ class ChatRequestHandler(SocketServer.BaseRequestHandler):
 
 
 if len(sys.argv) > 1:
-    ip_address, port_number = 'localhost', int(sys.argv[1])
+    ip_address, port_number, block_duration, timeout = ('localhost', int(sys.argv[1]), sys.argv[2], sys.argv[3])
+    os.environ['BLOCK_TIME'] = block_duration
+    os.environ['TIME_OUT'] = timeout
     server_address = (ip_address, port_number)
-    server = ChatServer(server_address, ChatRequestHandler, 'Credentials.txt')
+    server = Server(server_address, RequestHandler, 'Credentials.txt')
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -227,4 +228,4 @@ if len(sys.argv) > 1:
     finally:
         server.shutdown()
 else:
-    print ('Usage: python {} <port>'.format(sys.argv[0]))
+    print ('Usage: python {} <port> <block_duration> <timeout>'.format(sys.argv[0]))

@@ -17,6 +17,7 @@ Commands:
     logout                              Logout from chat server
     block <user>                        Block a user 
     unblock <user>                      Unblock a user
+    *simply ENTER to see any messages in queue to be viewed
 """
 
 

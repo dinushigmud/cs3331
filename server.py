@@ -48,18 +48,18 @@ class User:
         self.password = password #password ---> Credential.txt second column
         self.is_connected = False#boolean indicative of user being 'logged_in' state or 'logged_out'state
         self.last_active = float('-inf') #keeps track of when the user was last active (used for the implemntation of timeout)
-        self.blocked_connections = {}    #keeps track of connections blocked when dealing with authentication
+        self.blocked_login_users = {}    #keeps track of connections blocked when dealing with authentication
         self.blocked_users = []          #keeps track of users blocked(used for the implementation of block and unblock commands)
         self.message_queue = Queue()     #keeps track of the messeges yet to be viewed by the user 
 
     def login(self):
         self.is_connected = True
         #login is the first user active command
-        self.register_activity()
+        self.register_last_activity()
 
     #resets the .last_active variable everytime the user is active 
     #called by the server 
-    def register_activity(self):
+    def register_last_activity(self):
         self.last_active = current_time()
 
     def logout(self):
@@ -115,82 +115,119 @@ class Server(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     def add_user(self, username, password):
         self.users[username] = User(username, password)
 
-
+"""
+This class handles literally everything from processing the commands to handling authentication 
+"""
 class RequestHandler(SocketServer.BaseRequestHandler):
 
     def handle(self):
         self.request.settimeout(self.time_out)
         self.user = None
         try:
+            #make sure the server can be reached if so 'connection established'
             self.log('Connection established')
+            #deal first with authetication 
             if self.authenticate():
+                #if user is authenticated then login the user
                 self.user.login()
                 self.log('{} logged in'.format(self.user.username))
+                #whilst the user is loggedin continue to read user input commands and process them
                 while self.user.is_connected:
                     self.send_messages()
-                    client_input = self.read()
-                    self.user.register_activity()
-                    self.process_command(client_input)
+                    c_input = self.read()
+                    #for each command entered that is s user_last active time
+                    self.user.register_last_activity()
+                    #process each command
+                    self.process_command(c_input)
             self.log('Connection terminated')
         except socket.timeout:
             self.send_string('timeout:{}'.format(self.time_out))
             self.log('Connection timed out')
         except Exception:
             self.log('Connection lost')
-
-    def finish(self):
-        if self.user and self.user.is_connected:
-            self.user.logout()
-            self.log('{} logged out'.format(self.user.username))
-
+    """
+    Function related to authentication of usser.
+    The function will handle authentication by checking if the user input password is the 
+    same as the password from User.password
+    User gets three chances to attempt inputting of the correct password before blocking the
+    user for 'BLOCK_TIME'
+    Function returns True if authenticated and False if not 
+    """
     def authenticate(self):
         while not self.user:
-            username = self.read()
-            user = self.server.users.get(username)
-            if self.ip in user.blocked_connections:
-                time_blocked = user.blocked_connections[self.ip]
-                time_elapsed = current_time() - time_blocked
-                time_left = self.block_time - time_elapsed
-                if time_elapsed > self.block_time:
-                    user.blocked_connections.pop(self.ip)
+            uname = self.read()
+            user = self.server.users.get(uname)
+            #first makesure the self.user is not blocked due to multiple failed login attempts
+            if self.connection in user.blocked_login_users:
+                #if blocked --->
+                t_blocked = user.blocked_login_users[self.connection]
+                t_elapsed = current_time() - t_blocked
+                t_left = self.block_time - t_elapsed
+                #first check if the 'BLOCK_TIME' has elapsed since user was blocked 
+                if t_elapsed > self.block_time:
+                    #if elapsed recognise the user and prompt to enter password 
+                    user.blocked_login_users.pop(self.connection)
                     self.user = user
                 else:
-                    self.send_string('blocked:{}'.format(time_left))
+                    #if not elapsed send a message to client indicating that the user is blocked 
+                    # and the time left till block will be lifted such that the client can display 
+                    # a corresponding message
+                    self.send_string('blocked:{}'.format(t_left))
                     return False
+            #else if check if the user is already connected
             elif user.is_connected:
+                #if so send a message to client indicating that the user is alread connected so that
+                #the client can display a corresponding message
                 self.send_string('connected')
             else:
                 self.user = user
+        #having setup self.user we can now check if the password inserted by the user is indeed correct
         login_attempts = 0
         while login_attempts < 3:
             self.send_string('password')
             password = self.read()
+            #if correct password return True
             if self.user.password == password:
                 self.send_string('welcome')
                 return True
+            #else present another chance till login_attempts does not exceed three
             login_attempts += 1
+        #send a message to client to indicate that the current user trying to login has been blocked
         self.send_string(str(self.block_time))
-        self.user.blocked_connections[self.ip] = current_time()
-        self.log('{} blocked for {} seconds'.format(
-            username,
-            self.block_time
-        ))
+        #login has failed so maksure to enter the current time to user.blocked_login_users 
+        # to keep track of when the user was firs blocked
+        self.user.blocked_login_users[self.connection] = current_time()
+        #server side log
+        self.log('{} blocked for {} seconds'.format(uname,self.block_time))
         return False
 
-
+    """
+    This function is the main thinking box on the server side---> processing the commands 
+    inputted by the user
+    commands : whoelse, whoelsesince, message and broadcast are processed to redirect to another
+    function that will execute the command
+    commands : fetch, logout, block and unblock are executed in this function itself since 
+    these commands only require changing of certain variable values and uodating User.fields and such
+    """
     def process_command(self, command_string):
+        #parse_commands seperates the main command (command) and the rest of the args (args)
+        #basic processing is done using the main command 
         command, args = parse_command(command_string)
+        #command = "whoelse"
         if command == 'whoelse':
             self.whoelse()
+        #command = "whoelsesince"
         elif command == 'whoelsesince':
             try:
                 number = int(args[0])
                 self.whoelsesince(number)
             except Exception:
                 self.send_string('error:args:{}'.format(command))
+        #command = "broadcast"
         elif command == 'broadcast':
             message_string = ' '.join(args)
             self.broadcast(message_string)
+        #command = "message"
         elif command == 'message':
             try:
                 usernames = set(args[0] if isinstance(args[0], list) else [args[0]])
@@ -198,87 +235,123 @@ class RequestHandler(SocketServer.BaseRequestHandler):
                 self.message(message_string, usernames)
             except Exception:
                 self.send_string('error:args:{}'.format(command))
+        #command = "logout"
         elif command == 'logout':
+            #in processing this command we acces the User.logout function
             self.send_string('goodbye')
             self.user.logout()
             self.log('{} logged out'.format(self.user.username))
+        #command = "block"
         elif command == 'block':
+            #in processing this command the user is added to the user.blocked_users list
             print('entered block command unit')
             user_to_be_blocked = args[0]
             self.user.blocked_users.append(user_to_be_blocked)
             print (self.user.blocked_users)
             self.send_string('blocking')
+        #command = "unblock"
         elif command == 'unblock':
+            #in processing this command the user inidcated is removed from the User.blocked_users list
             print('entered unblock command unit')
             user_to_be_unblocked = args[0]
             tmp = self.user.blocked_users.index(user_to_be_unblocked)
             self.user.blocked_users.pop(tmp)
             print (self.user.blocked_users)
             self.send_string('unblocking')
+        #command = "fetch " ---> used to deal with whitespace and empty command inputs
+        #fetch command is first processed in the client side 
         elif command == 'fetch':
             self.send_string('fetching')
+        #all other inputs become unknown commands 
         else:
             self.send_string('error:command:{}'.format(command))
 
+    #this function takes all the messages stored in User.message_queue and sends them to the client side for display
     def send_messages(self):
         messages = self.user.dump_message_queue()
         for message in messages:
             self.send_string(str(message))
+        #after sending the messages ---> string 'DONE' is sent to indicate the end of the message_queue to the client
         self.send_string('DONE')
+        #server side log
         if messages:
             self.log('{} received {} message(s)'.format(self.user.username,len(messages)))
 
+    #processing of the whoelse function
     def whoelse(self):
         usernames = []
+        #goes through all the users stored in the server.users
         for user in self.server.users.values():
+            #checks whethet they are currently logged in as inidcated by Useer.is_connected and 
+            # if they are not the current user itself then append to list usernames
             if user.is_connected and self.user.username != user.username:
                 usernames.append(user.username)
+        #return usernames list as a string 
         self.send_string(' '.join(usernames))
 
+    #processing of the whoelsesince function
+    #similar processing to whoelse, except looking into the time passed in as 'number'
     def whoelsesince(self, number):
         usernames = []
         ref_time = current_time()
         for user in self.server.users.values():
+            #check if the user_last was active in the time frame indicated by number 
+            #if so continue to process similar to whoelse
             seconds = float(ref_time - user.last_active) 
             if user.is_connected or seconds < number:
                 if(user.username != self.user.username):
                     usernames.append(user.username)
         self.send_string(' '.join(usernames))
 
+    #makes use of the message function by sending the message to all users in the server
     def broadcast(self, message):
         self.message(message, self.server.users.keys())
 
+    #This function is written with the intention of being used for broadcast as well
+    #thereby the function takes in a list of users to send the message to 
     def message(self, message_string, usernames):
         invalid_usernames, users_messaged = [], 0
+        #iterates through each username 
         for username in usernames:
             user = self.server.users.get(username)
             if not user:
+                #if user does not exist error handling ensued
                 invalid_usernames.append(username)
+                #else makesure message is not being sent to the sender
             elif user is not self.user:
+                #makesure the sender is not blocked by the recepient
                 if self.user.username in user.blocked_users:
                     pass
                     # invalid_usernames.append(username)
+                #send message
                 else :    
+                    #first initialize  Message
                     message = Message(message_string, self.user)
+                    #add message to the receipients User.messge_queue
                     user.add_messeges(message)
                     users_messaged += 1
         self.send_string('sent:{}'.format(''.join(invalid_usernames)))
         self.log('{} sent a message to {} user(s)'.format(self.user.username,users_messaged))
 
     def read(self):
+        # self.request is the TCP socket connected to the client
+        #.recv used to reveive data
         data = self.request.recv(BUFFER_SIZE).strip()
         if not data:
             raise socket.error
         return data
 
     def send_string(self, string):
+        # self.request is the TCP socket connected to the client
+        #.recv used to send data
         self.request.sendall('{}\n'.format(string))
 
+    #server side log indicating the commands processed on the server side
     def log(self, message):
-        print ('[{}] {}: {}'.format(current_time_string(),self.ip,message,))
+        print ('[{}] {}: {}'.format(current_time_string(),self.connection,message,))
 
     @property
-    def ip(self):
+    def connection(self):
         return self.client_address[0]
 
     @property

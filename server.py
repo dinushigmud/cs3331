@@ -1,21 +1,96 @@
-from user import Message, User
+
 import os
 import socket
 import SocketServer
 import sys
 import user
-import util
+import re
+import time 
+from Queue import Queue
 
 BUFFER_SIZE = 1024
 
+#basically breaks down the arguments into the main 'command' and then the rest of the 'args'
+#helper function to process_commands function in server.py
+def parse_command(command_string):
+    tokens = command_string.split()
+    if not tokens:
+        return None, []
+    command, args = tokens[0], tokens[1:]
+    for i in range(len(args)):
+        if i == 0 and args[i][0] == '(' and args[i][-1] == ')':
+            args[i] = re.split('\s+', args[i][1:-1])
+        elif args[i][0] == '\'' and args[i][-1] == '\'':
+            args[i] = args[i][1:-1]
+    return command, args
+
+
+#returns current time
+def current_time():
+    return int(time.time())
+
+#returns the current time in string format 
+def current_time_string():
+    return time.strftime('%m-%d-%yT%H:%M:%S')
+
+"""
+This class helps to differentiate between users on different threads 
+Note that due to the multi-threading application Queue has been used to ensure 'thread-safe' data structures
+"""
+class User:
+    def __init__(self, username, password):
+        self.username = username #username ---> Credentials.txt first column
+        self.password = password #password ---> Credential.txt second column
+        self.is_connected = False#boolean indicative of user being 'logged_in' state or 'logged_out'state
+        self.last_active = float('-inf') #keeps track of when the user was last active (used for the implemntation of timeout)
+        self.blocked_connections = {}    #keeps track of connections blocked when dealing with authentication
+        self.blocked_users = []          #keeps track of users blocked(used for the implementation of block and unblock commands)
+        self.message_queue = Queue()     #keeps track of the messeges yet to be viewed by the user 
+
+    def login(self):
+        self.is_connected = True
+        #login is the first user active command
+        self.register_activity()
+
+    #resets the .last_active variable everytime the user is active 
+    #called by the server 
+    def register_activity(self):
+        self.last_active = current_time()
+
+    def logout(self):
+        self.is_connected = False
+
+    #add messeges to the messege_queue
+    def add_messeges(self, message):
+        self.message_queue.put(message)
+
+    #goes through the messege_queue and temporarily stores each of the messeges in the messeges list 
+    #returns the messenges list
+    def dump_message_queue(self):
+        messages = []
+        while not self.message_queue.empty():
+            messages.append(self.message_queue.get())
+        return messages
+
+"""
+This class helps to keep the data relevant to Messeges in one class
+"""
+class Message:
+    def __init__(self, message_string, from_user):
+        self.message_string = message_string #messege body from user
+        self.from_user = from_user #messege sender details
+        self.timestamp = current_time_string() #time messege was first sent
+
+    def __str__(self):
+        return '[{}] {}: {}'.format(
+            self.timestamp,
+            self.from_user.username,
+            self.message_string
+        )
 
 class Server(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     def __init__(self, server_address, request_handler_class, user_file_path):
-        SocketServer.TCPServer.__init__(
-            self,
-            server_address,
-            request_handler_class
-        )
+        SocketServer.TCPServer.__init__(self, server_address,request_handler_class)
         self.load_users(user_file_path)
         self.daemon_threads = True
 
@@ -62,7 +137,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
             user = self.server.users.get(username)
             if self.ip in user.blocked_connections:
                 time_blocked = user.blocked_connections[self.ip]
-                time_elapsed = util.current_time() - time_blocked
+                time_elapsed = current_time() - time_blocked
                 time_left = self.block_time - time_elapsed
                 if time_elapsed > self.block_time:
                     user.blocked_connections.pop(self.ip)
@@ -83,7 +158,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
                 return True
             login_attempts += 1
         self.send_string(str(self.block_time))
-        self.user.blocked_connections[self.ip] = util.current_time()
+        self.user.blocked_connections[self.ip] = current_time()
         self.log('{} blocked for {} seconds'.format(
             username,
             self.block_time
@@ -92,7 +167,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
 
 
     def process_command(self, command_string):
-        command, args = util.parse_command(command_string)
+        command, args = parse_command(command_string)
         if command == 'whoelse':
             self.whoelse()
         elif command == 'whoelsesince':
@@ -155,7 +230,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
 
     def whoelsesince(self, number):
         usernames = []
-        ref_time = util.current_time()
+        ref_time = current_time()
         for user in self.server.users.values():
             seconds = float(ref_time - user.last_active) 
             if user.is_connected or seconds < number:
@@ -197,7 +272,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
 
     def log(self, message):
         print ('[{}] {}: {}'.format(
-            util.current_time_string(),
+            current_time_string(),
             self.ip,
             message,
         ))

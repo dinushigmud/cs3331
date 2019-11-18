@@ -6,9 +6,14 @@ import sys
 import user
 import re
 import time 
+
 from Queue import Queue
 
 BUFFER_SIZE = 1024
+
+"""
+Helper Functions 
+"""
 
 #basically breaks down the arguments into the main 'command' and then the rest of the 'args'
 #helper function to process_commands function in server.py
@@ -88,12 +93,19 @@ class Message:
             self.message_string
         )
 
+"""
+This class initiated the Server connection and loads_the necessary information from Credentials.txt
+"""
+
 class Server(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-    def __init__(self, server_address, request_handler_class, user_file_path):
-        SocketServer.TCPServer.__init__(self, server_address,request_handler_class)
+    def __init__(self, server_address, request_handler, user_file_path):
+        SocketServer.TCPServer.__init__(self, server_address,request_handler)
         self.load_users(user_file_path)
         self.daemon_threads = True
 
+    # read line by line of Credentials.txt 
+    # each line is split to get the username and password 
+    # which is hence passed to the User class to subsequentially create a User object
     def load_users(self, file_path):
         self.users = {}
         for line in open(file_path, 'r'):
@@ -181,9 +193,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
             self.broadcast(message_string)
         elif command == 'message':
             try:
-                usernames = set(
-                    args[0] if isinstance(args[0], list) else [args[0]]
-                )
+                usernames = set(args[0] if isinstance(args[0], list) else [args[0]])
                 message_string = ' '.join(args[1:])
                 self.message(message_string, usernames)
             except Exception:
@@ -216,10 +226,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
             self.send_string(str(message))
         self.send_string('DONE')
         if messages:
-            self.log('{} received {} message(s)'.format(
-                self.user.username,
-                len(messages)
-            ))
+            self.log('{} received {} message(s)'.format(self.user.username,len(messages)))
 
     def whoelse(self):
         usernames = []
@@ -256,10 +263,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
                     user.add_messeges(message)
                     users_messaged += 1
         self.send_string('sent:{}'.format(''.join(invalid_usernames)))
-        self.log('{} sent a message to {} user(s)'.format(
-            self.user.username,
-            users_messaged
-        ))
+        self.log('{} sent a message to {} user(s)'.format(self.user.username,users_messaged))
 
     def read(self):
         data = self.request.recv(BUFFER_SIZE).strip()
@@ -271,11 +275,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
         self.request.sendall('{}\n'.format(string))
 
     def log(self, message):
-        print ('[{}] {}: {}'.format(
-            current_time_string(),
-            self.ip,
-            message,
-        ))
+        print ('[{}] {}: {}'.format(current_time_string(),self.ip,message,))
 
     @property
     def ip(self):
@@ -289,7 +289,7 @@ class RequestHandler(SocketServer.BaseRequestHandler):
     def time_out(self):
         return int(os.environ.get('TIME_OUT') or 30 * 60)
 
-
+# main execution on server side according to assignment specifications
 if len(sys.argv) > 1:
     ip_address, port_number, block_duration, timeout = ('localhost', int(sys.argv[1]), sys.argv[2], sys.argv[3])
     os.environ['BLOCK_TIME'] = block_duration
